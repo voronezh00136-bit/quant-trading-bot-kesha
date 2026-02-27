@@ -1,0 +1,85 @@
+// =============================================================================
+// Kesha – Signal Indicator (Pine Script v5)
+// =============================================================================
+// Detects BPU / BSU retest zones and false-breakout patterns on any chart.
+// Designed to complement the Python execution engine: alerts generated here
+// can be forwarded to the Kesha bot via a TradingView webhook.
+//
+// Signals:
+//   🟢 Long  – bullish false-breakout / BSU retest confirmed
+//   🔴 Short – bearish false-breakout / BPU retest confirmed
+// =============================================================================
+//@version=5
+indicator(title="Kesha – BPU/BSU Retest & False Breakout", shorttitle="Kesha", overlay=true)
+
+// ---------------------------------------------------------------------------
+// Inputs
+// ---------------------------------------------------------------------------
+atr_period       = input.int(14,  title="ATR Period",               minval=1)
+atr_mult         = input.float(1.5, title="ATR Stop Multiplier",    minval=0.1, step=0.1)
+fb_threshold     = input.float(0.5, title="False-Breakout ATR Threshold", minval=0.1, step=0.1)
+confirm_candles  = input.int(2,   title="Confirmation Candles",     minval=1, maxval=10)
+key_level_src    = input.source(close, title="Key-Level Source (manual override)")
+show_atr_bands   = input.bool(true, title="Show ATR Stop Bands")
+
+// ---------------------------------------------------------------------------
+// ATR & key level
+// ---------------------------------------------------------------------------
+atr_val    = ta.atr(atr_period)
+// Default key level: use a simple pivot (highest high / lowest low of last 20 bars)
+pivot_high = ta.highest(high, 20)
+pivot_low  = ta.lowest(low, 20)
+
+// ---------------------------------------------------------------------------
+// False-breakout detection
+// ---------------------------------------------------------------------------
+// Bullish FB: previous bar low dipped below pivot_low, closed above it;
+//             current bar also closes above pivot_low by > threshold.
+bull_fb = (low[1] < pivot_low[1])
+        and (close[1] > pivot_low[1])
+        and (close > pivot_low)
+        and ((close - pivot_low) > fb_threshold * atr_val)
+
+// Bearish FB: previous bar high exceeded pivot_high, closed below it;
+//             current bar also closes below pivot_high by > threshold.
+bear_fb = (high[1] > pivot_high[1])
+        and (close[1] < pivot_high[1])
+        and (close < pivot_high)
+        and ((pivot_high - close) > fb_threshold * atr_val)
+
+// ---------------------------------------------------------------------------
+// Multi-candle momentum confirmation
+// ---------------------------------------------------------------------------
+bull_momentum = true
+bear_momentum = true
+for i = 0 to confirm_candles - 1
+    bull_momentum := bull_momentum and (close[i] > open[i])
+    bear_momentum := bear_momentum and (close[i] < open[i])
+
+bull_signal = bull_fb and bull_momentum
+bear_signal = bear_fb and bear_momentum
+
+// ---------------------------------------------------------------------------
+// ATR-based stop bands
+// ---------------------------------------------------------------------------
+long_stop  = close - atr_mult * atr_val
+short_stop = close + atr_mult * atr_val
+
+plot(show_atr_bands and bull_signal ? long_stop  : na, title="Long Stop",  color=color.new(color.green, 60), style=plot.style_circles, linewidth=2)
+plot(show_atr_bands and bear_signal ? short_stop : na, title="Short Stop", color=color.new(color.red,   60), style=plot.style_circles, linewidth=2)
+
+// ---------------------------------------------------------------------------
+// Visuals
+// ---------------------------------------------------------------------------
+plotshape(bull_signal, title="Long Signal",  location=location.belowbar, color=color.green, style=shape.triangleup,   size=size.small, text="LONG")
+plotshape(bear_signal, title="Short Signal", location=location.abovebar, color=color.red,   style=shape.triangledown, size=size.small, text="SHORT")
+
+// Key-level lines
+plot(pivot_high, title="Pivot High (BPU)", color=color.new(color.red,   70), linewidth=1, style=plot.style_stepline)
+plot(pivot_low,  title="Pivot Low  (BSU)", color=color.new(color.green, 70), linewidth=1, style=plot.style_stepline)
+
+// ---------------------------------------------------------------------------
+// Alerts
+// ---------------------------------------------------------------------------
+alertcondition(bull_signal, title="Kesha Long Signal",  message='{"symbol":"{{ticker}}","direction":"long","price":{{close}},"atr":{{plot_0}}}')
+alertcondition(bear_signal, title="Kesha Short Signal", message='{"symbol":"{{ticker}}","direction":"short","price":{{close}},"atr":{{plot_0}}}')

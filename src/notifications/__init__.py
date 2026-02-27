@@ -1,0 +1,3 @@
+"""
+Kesha – notifications sub-package
+"""
